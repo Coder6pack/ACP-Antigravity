@@ -3665,6 +3665,109 @@ fn test_paseo_direct_session_set_mode_reaches_native_accept_edits() {
 }
 
 #[test]
+fn direct_selected_mode_survives_session_restart() {
+    for mode in [Adapter::PLAN_MODE_ID, Adapter::ACCEPT_EDITS_MODE_ID] {
+        for replay in [false, true] {
+            let root =
+                std::env::temp_dir().join(format!("agy-acp-mode-restore-{}", Uuid::new_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let mut adapter = adapter_for_test_root(&root);
+            let created = adapter.handle_session_new(json!(1), &json!({}));
+            let session_id = created.result.unwrap()["sessionId"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let selected = adapter.handle_session_set_mode(
+                json!(2),
+                &json!({"sessionId": session_id, "modeId": mode}),
+            );
+            assert!(selected.error.is_none());
+            drop(adapter);
+
+            let mut restored = adapter_for_test_root(&root);
+            let request = json!({"sessionId": session_id});
+            let response = if replay {
+                let lines = restored.handle_session_load(json!(3), &request);
+                serde_json::from_str::<Value>(&lines[0]).unwrap()
+            } else {
+                serde_json::to_value(restored.handle_session_resume(json!(3), &request)).unwrap()
+            };
+            assert!(response["error"].is_null(), "{response}");
+            assert_eq!(restored.sessions[&session_id].mode_id, mode);
+            let args = restored.build_agy_args(&session_id, &root.join("run.log"), None);
+            assert!(args.windows(2).any(|pair| pair == ["--mode", mode]));
+            assert_eq!(
+                args.iter()
+                    .any(|arg| arg == "--dangerously-skip-permissions"),
+                mode == Adapter::ACCEPT_EDITS_MODE_ID,
+            );
+            drop(restored);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[test]
+fn delegated_mode_requires_approval_after_session_restart() {
+    for approved in [false, true] {
+        for replay in [false, true] {
+            let root =
+                std::env::temp_dir().join(format!("agy-acp-delegated-restore-{}", Uuid::new_v4()));
+            fs::create_dir_all(&root).unwrap();
+            let mut adapter = adapter_for_test_root(&root);
+            let mut assignment = json!({
+                "taskId": "restore-task",
+                "parentRole": "lead",
+                "objective": "Check the assigned workspace",
+                "scope": ["src"],
+                "verification": ["cargo test"]
+            });
+            if approved {
+                assignment["approval"] = json!("IMPLEMENTATION_APPROVED");
+            }
+            let created =
+                adapter.handle_session_new(json!(1), &json!({"agyAssignment": assignment}));
+            assert!(created.error.is_none(), "{:?}", created.error);
+            let session_id = created.result.unwrap()["sessionId"]
+                .as_str()
+                .unwrap()
+                .to_string();
+            let selected = adapter.handle_session_set_mode(
+                json!(2),
+                &json!({"sessionId": session_id, "modeId": Adapter::ACCEPT_EDITS_MODE_ID}),
+            );
+            assert_eq!(selected.error.is_none(), approved);
+            drop(adapter);
+
+            let mut restored = adapter_for_test_root(&root);
+            let request = json!({"sessionId": session_id});
+            let response = if replay {
+                let lines = restored.handle_session_load(json!(3), &request);
+                serde_json::from_str::<Value>(&lines[0]).unwrap()
+            } else {
+                serde_json::to_value(restored.handle_session_resume(json!(3), &request)).unwrap()
+            };
+            assert!(response["error"].is_null(), "{response}");
+            let mode = if approved {
+                Adapter::ACCEPT_EDITS_MODE_ID
+            } else {
+                Adapter::PLAN_MODE_ID
+            };
+            assert_eq!(restored.sessions[&session_id].mode_id, mode);
+            let args = restored.build_agy_args(&session_id, &root.join("run.log"), None);
+            assert!(args.windows(2).any(|pair| pair == ["--mode", mode]));
+            assert_eq!(
+                args.iter()
+                    .any(|arg| arg == "--dangerously-skip-permissions"),
+                approved
+            );
+            drop(restored);
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+}
+
+#[test]
 fn test_session_set_config_option_rejects_unknown_mode() {
     let mut adapter = adapter_for_test();
     let new_response = adapter.handle_session_new(json!(1), &json!({}));

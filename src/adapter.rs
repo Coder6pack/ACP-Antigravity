@@ -762,8 +762,8 @@ impl Adapter {
         {
             Self::ACCEPT_EDITS_MODE_ID.to_string()
         } else {
-            // Direct and proposal-only Agy sessions are always read-only at
-            // the native CLI boundary, regardless of a host-selected mode.
+            // Plan sessions and assignments without write authorization
+            // never receive native auto-confirm.
             Self::PLAN_MODE_ID.to_string()
         }
     }
@@ -1565,8 +1565,12 @@ impl Adapter {
             // preserves the conversation without granting a write capability.
             mode_id = Self::PLAN_MODE_ID.to_string();
         } else if mode_id == Self::ACCEPT_EDITS_MODE_ID
+            && Self::assignment_key_present(&stored.caller_context)
             && !Self::stored_session_assignment_is_approved(stored)
         {
+            // Explicit host-selected mode is also persisted for direct seats.
+            // Only delegated seats require a matching Lead approval on restore,
+            // just as they do when selecting a mode in a live session.
             mode_id = Self::PLAN_MODE_ID.to_string();
         }
         if !self.is_supported_mode(&mode_id) {

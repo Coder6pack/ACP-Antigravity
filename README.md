@@ -1,4 +1,4 @@
-# agy-acp
+# ACP-Antigravity
 
 An [Agent Client Protocol (ACP)](https://agentclientprotocol.com) stdio adapter for [Google Antigravity CLI](https://github.com/google-antigravity/antigravity-cli) (`agy`). It bridges `agy` into any ACP-compatible host like [Zed](https://zed.dev), enabling you to use Gemini models through `agy` inside Zed's Agent Panel.
 
@@ -58,7 +58,17 @@ Then open the Agent Panel in Zed (`Cmd-?` on macOS, `Ctrl-?` on Linux), select *
 ### Permission Mode
 
 The adapter exposes one dynamic ACP `mode` selector. New ordinary sessions
-default to `plan` and return an implementation/evidence proposal first. A
+default to `plan`. In Agy headless print mode, tools that request confirmation
+(including read-only MCP calls) are denied in this mode. MCP attachment and
+successful chat alone do not establish that tool execution works.
+
+For a direct Paseo session with no delegated assignment, explicitly select
+`accept-edits` in the host to authorize tool execution. The adapter persists
+that selection across load/resume and starts Agy with `accept-edits` and the
+native auto-confirm flag. This permits tools, including writes; it is not a
+read-only MCP mode. Do not select it when only read-only authority was granted.
+
+For a delegated assignment, a
 matching Lead `IMPLEMENTATION_APPROVED` or one consolidated
 `REMEDIATION_APPROVED` envelope promotes that task-bound session to
 `accept-edits`; callers cannot unlock it with a mode flag alone. Ordinary
@@ -73,16 +83,12 @@ mode surfaces are supported: Paseo's native `session/set_mode` and
 selector-based `session/set_config_option` update the same persisted adapter
 mode state.
 
-Legacy/direct sessions that have no Lead assignment remain loadable for
-read-only history and context hydration. They are restored and launched in
-`plan`; any writable request still requires the normal Lead assignment and
-approval path. Historical `accept-edits` or `full-access` metadata is treated
-as compatibility state and is never used to grant a delegated worker writes.
+Delegated assignments without approval remain in `plan` after restore.
+Selecting a mode does not replace their Lead approval requirement.
 
 When Agy's headless print mode soft-denies a tool confirmation, the adapter
-returns an actionable JSON-RPC permission error identifying the bounded modes
-and the separately gated autonomous launcher, rather than reporting a generic
-empty-response failure.
+returns a visible system-error update identifying the available permission
+paths, rather than reporting a generic empty-response failure.
 
 ### Per-session MCP
 
@@ -130,7 +136,7 @@ Set the `AGY_EXTRA_ARGS` environment variable to pass additional arguments to ev
 | `GEMINI_API_KEY` | API key for Gemini (passed through to `agy`) |
 | `AGY_EXTRA_ARGS` | Space-separated extra args passed to every `agy` invocation |
 | `AGY_PRINT_TIMEOUT` | Maximum duration of an `agy` turn (default `1h`; omitting `--print-timeout` would restore Agy's native 5-minute default) |
-| `AGY_AUTO_APPROVE` | Ambient values are ignored for delegated workers; only the separately gated autonomous-root launcher may set `1` and use `--dangerously-skip-permissions` |
+| `AGY_AUTO_APPROVE` | The adapter overrides ambient values using the session's effective mode. Explicit direct `accept-edits`, Lead-approved delegated writes, and separately gated full access enable native auto-confirm; `plan` does not. |
 
 ## Session Persistence
 
