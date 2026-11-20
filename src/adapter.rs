@@ -3596,10 +3596,11 @@ State clearly that this is an incomplete partial handback due to timeout. This i
         };
 
         if let Some(session) = self.sessions.get_mut(session_id) {
-            if session.conversation_id.is_none() {
-                session.conversation_id = bound_conv_id.clone();
-            }
             if bound_conv_id.is_some() {
+                // Agy may replace an existing conversation. Keep the active
+                // session on the same binding that is persisted below so the
+                // next prompt does not resume the discarded conversation.
+                session.conversation_id = bound_conv_id.clone();
                 session.last_step_idx = new_step_idx;
             }
         }
